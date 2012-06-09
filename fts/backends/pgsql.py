@@ -1,23 +1,30 @@
 "Pgsql Fts backend"
 import django
 DJANGO_VERSION = django.VERSION
-from django.db import connections, transaction
+
 from django.db.models.fields import FieldDoesNotExist
 
 from fts.backends.base import InvalidFtsBackendError
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 from django.conf import settings
+from django.db import transaction 
+if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
+    from django.db import connection
+    this_backend = settings.DATABASE_ENGINE
+else:
+    from django.db import connections
+    try:
+        fts_database = settings.FTS_DATABASE
+    except AttributeError:
+        fts_database = 'default'
+    connection = connections[fts_database]
+    this_backend = settings.DATABASES[fts_database]['ENGINE']
 try:
     from south.modelsinspector import add_introspection_rules
     add_introspection_rules([], ["^fts\.backends\.pgsql\.VectorField"])
 except:
     pass
 
-try:
-    fts_database = settings.FTS_DATABASE
-except AttributeError:
-    fts_database = 'default'
-connection = connections[fts_database]
 
 qn = connection.ops.quote_name
 
@@ -53,12 +60,12 @@ class VectorField(models.Field):
 
 class SearchClass(BaseClass):
     def __init__(self, server, params):
-        if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
-            if not settings.DATABASE_ENGINE in ['postgresql', 'postgresql_psycopg2']:
-                raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
-        else:
-            if not settings.DATABASES[fts_database]['ENGINE'] in ['postgresql', 'postgresql_psycopg2','django.db.backends.postgresql_psycopg2']:
-                raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
+#        if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
+        if not this_backend in ['postgresql', 'postgresql_psycopg2','django.db.backends.postgresql_psycopg2']:
+            raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
+#        else:
+#            if not settings.DATABASES[fts_database]['ENGINE'] in ['postgresql', 'postgresql_psycopg2','django.db.backends.postgresql_psycopg2']:
+#                raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
         self.backend = 'pgsql'
 
 class SearchManager(BaseManager):
@@ -98,6 +105,7 @@ class SearchManager(BaseManager):
         # Build a list of SQL clauses that generate tsvectors for each specified field.
         clauses = []
         params = []
+#        print self._field
         for field, weight in self._fields.items():
             v = self._vector_sql(field, weight)
             clauses.append(v[0])
