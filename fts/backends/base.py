@@ -36,13 +36,12 @@ class BaseManager(models.Manager):
     def contribute_to_class(self, cls, name):
         # Instances need to get to us to update their indexes.
         search_managers = getattr(cls, '_search_managers', [])
-        search_managers.append(self)
+        if not isinstance(self.fields,type(None)):
+            search_managers.append(self)
         setattr(cls, '_search_managers', search_managers)
         super(BaseManager, self).contribute_to_class(cls, name)
-
         if not self.fields:
             self.fields = self._find_text_fields()
-        
         if isinstance(self.fields, (list, tuple)):
             self._fields = {}
             for field in self.fields:
@@ -82,7 +81,7 @@ class BaseModel(models.Model):
     class Meta:
         abstract = True
     
-    @transaction.commit_on_success
+    #@transaction.commit_on_success
     def update_index(self):
         """
         Update the index.
@@ -91,7 +90,7 @@ class BaseModel(models.Model):
             sm._update_index(pk=self.pk)
 
     @classmethod
-    @transaction.commit_on_success
+    #@transaction.commit_on_success
     def update_indexes(cls):
         """
         Update the index.
@@ -99,10 +98,18 @@ class BaseModel(models.Model):
         for sm in getattr(cls, '_search_managers', []):
             sm._update_index(None)
     
-    @transaction.commit_on_success
+    #@transaction.commit_on_success
     def save(self, *args, **kwargs):
         update_index = kwargs.pop('update_index', True)
         super(BaseModel, self).save(*args, **kwargs)
         if update_index and getattr(self, '_auto_reindex', True):
             for sm in getattr(self.__class__, '_search_managers', []):
                 sm._update_index(pk=self.pk)
+                
+                
+                
+                
+                
+                
+                
+                

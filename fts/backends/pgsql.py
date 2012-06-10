@@ -9,14 +9,17 @@ from fts.backends.base import BaseClass, BaseModel, BaseManager
 from django.conf import settings
 from django.db import transaction 
 if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
+    NEW_DJANGO = False
     from django.db import connection
     this_backend = settings.DATABASE_ENGINE
 else:
+    NEW_DJANGO = True
     from django.db import connections
     try:
         fts_database = settings.FTS_DATABASE
     except AttributeError:
-        fts_database = 'default'
+        from ...fts import settings as fts_settings
+        fts_database = fts_settings.FTS_DATABASE
     connection = connections[fts_database]
     this_backend = settings.DATABASES[fts_database]['ENGINE']
 try:
@@ -60,12 +63,8 @@ class VectorField(models.Field):
 
 class SearchClass(BaseClass):
     def __init__(self, server, params):
-#        if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
         if not this_backend in ['postgresql', 'postgresql_psycopg2','django.db.backends.postgresql_psycopg2']:
             raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
-#        else:
-#            if not settings.DATABASES[fts_database]['ENGINE'] in ['postgresql', 'postgresql_psycopg2','django.db.backends.postgresql_psycopg2']:
-#                raise InvalidFtsBackendError("PostgreSQL with tsearch2 support is needed to use the pgsql FTS backend")
         self.backend = 'pgsql'
 
 class SearchManager(BaseManager):
@@ -84,7 +83,7 @@ class SearchManager(BaseManager):
         vectors = [f for f in self.model._meta.fields if isinstance(f, VectorField)]
         
         if len(vectors) != 1:
-            raise ValueError('There must be exactly 1 VectorField defined for the %s model.' % self.model._meta.object_name)
+            raise ValueError('There must be exactly one VectorField defined for the %s model.' % self.model._meta.object_name)
             
         self._vector_field_cache = vectors[0]
         
@@ -100,18 +99,17 @@ class SearchManager(BaseManager):
             return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
         except FieldDoesNotExist:
             return ("setweight(to_tsvector('%s', %%s), '%s')" % (self.language, weight), [field])
-
+    
+    @transaction.commit_on_success
     def _update_index_update(self, pk=None):
         # Build a list of SQL clauses that generate tsvectors for each specified field.
         clauses = []
         params = []
-#        print self._field
         for field, weight in self._fields.items():
             v = self._vector_sql(field, weight)
             clauses.append(v[0])
             params.extend(v[1])
         vector_sql = ' || '.join(clauses)
-        
         where = ''
         # If one or more pks are specified, tack a WHERE clause onto the SQL.
         if pk is not None:
@@ -123,7 +121,10 @@ class SearchManager(BaseManager):
         sql = 'UPDATE %s SET %s = %s%s' % (qn(self.model._meta.db_table), qn(self.vector_field.column), vector_sql, where)
         cursor = connection.cursor()
         cursor.execute(sql, tuple(params))
-        transaction.set_dirty()
+        if NEW_DJANGO:
+            transaction.commit_unless_managed(using=fts_database)
+        else:
+            transaction.set_dirty()
 
     def _update_index_walking(self, pk=None):
         if pk is not None:
@@ -134,7 +135,7 @@ class SearchManager(BaseManager):
         else:
             items = self.all()
         
-        IW = {}
+#        IW = {}
         for item in items:
             clauses = []
             params = []
@@ -154,7 +155,10 @@ class SearchManager(BaseManager):
             sql = 'UPDATE %s SET %s = %s WHERE %s = %d' % (qn(self.model._meta.db_table), qn(self.vector_field.column), vector_sql, qn(self.model._meta.pk.column), item.pk)
             cursor = connection.cursor()
             cursor.execute(sql, tuple(params))
-        transaction.set_dirty()
+        if NEW_DJANGO:
+            transaction.commit_unless_managed(using=fts_database)
+        else:
+            transaction.set_dirty()
     
     @transaction.commit_on_success
     def _update_index(self, pk=None):
