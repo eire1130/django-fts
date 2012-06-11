@@ -3,7 +3,7 @@ import django
 DJANGO_VERSION = django.VERSION
 
 from django.db.models.fields import FieldDoesNotExist
-
+from django.core.exceptions import FieldError
 from fts.backends.base import InvalidFtsBackendError
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 from django.conf import settings
@@ -51,6 +51,11 @@ LANGUAGES = {
     'tr' : 'turkish',
 }
 
+def require_postgres(connection):
+    engine = connection.settings_dict['ENGINE']
+    if 'psycopg2' not in engine and 'postgis' not in engine:
+        raise FieldError("Vector fields are currently implemented only for PostgreSQL/psycopg2")
+
 class VectorField(models.Field):
     def __init__(self, *args, **kwargs):
         kwargs['null'] = True
@@ -59,7 +64,11 @@ class VectorField(models.Field):
         super(VectorField, self).__init__(*args, **kwargs)
     
     def db_type(self, connection=None):
-        return 'tsvector'
+        try:
+            require_postgres(connection)
+            return 'tsvector'
+        except:
+            return 'char(%s)' % 5
 
 class SearchClass(BaseClass):
     def __init__(self, server, params):
