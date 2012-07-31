@@ -65,6 +65,14 @@ class BaseManager(models.Manager):
     def search(self, query, **kwargs):
         return self._search(query, **kwargs)
     
+    def _word_count(self, **kwargs):
+        raise NotImplementedError
+    
+    def word_count(self, **kwargs):
+        query = None
+        return self._word_count(**kwargs)
+    
+    
     def _find_text_fields(self):
         """
         Return the names of all CharField and TextField fields defined for this manager's model.
@@ -107,9 +115,8 @@ class BaseModel(models.Model):
                 sm._update_index(pk=self.pk)
                 
                 
-                
-                
-                
+
+
                 
                 
                 

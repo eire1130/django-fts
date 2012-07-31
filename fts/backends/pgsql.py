@@ -1,5 +1,6 @@
 "Pgsql Fts backend"
 import django
+from django.db.utils import DatabaseError
 DJANGO_VERSION = django.VERSION
 
 from django.db.models.fields import FieldDoesNotExist
@@ -7,7 +8,9 @@ from django.core.exceptions import FieldError
 from fts.backends.base import InvalidFtsBackendError
 from fts.backends.base import BaseClass, BaseModel, BaseManager
 from django.conf import settings
-from django.db import transaction 
+from django.db import transaction
+import sys
+
 if (DJANGO_VERSION[0] <= 1) and (DJANGO_VERSION[1] <=2):
     NEW_DJANGO = False
     from django.db import connection
@@ -92,7 +95,7 @@ class SearchManager(BaseManager):
         vectors = [f for f in self.model._meta.fields if isinstance(f, VectorField)]
         
         if len(vectors) != 1:
-            raise ValueError('There must be exactly one VectorField defined for the %s model.' % self.model._meta.object_name)
+            raise ValueError('There must be exactly 1 VectorField defined for the %s model.' % self.model._meta.object_name)
             
         self._vector_field_cache = vectors[0]
         
@@ -105,9 +108,19 @@ class SearchManager(BaseManager):
         """
         try:
             f = self.model._meta.get_field(field)
-            return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
+            t_size = getattr(self.model, f.column)
+            if sys.getsizeof(t_size) < 1048575:
+                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
+            else:
+                a = t_size
+                while sys.getsizeof(t_size) >= 1048575:
+                    a = a[:-1]
+                setattr(self.model, a)
+                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(a), weight), [])
+                
         except FieldDoesNotExist:
             return ("setweight(to_tsvector('%s', %%s), '%s')" % (self.language, weight), [field])
+
     
     @transaction.commit_on_success
     def _update_index_update(self, pk=None):
@@ -180,7 +193,47 @@ class SearchManager(BaseManager):
             self._update_index_walking(pk)
         else:
             self._update_index_update(pk)
-    
+#    
+    def _word_count(self, **kwargs):
+        
+        word_length = kwargs.get('word_length')
+        if word_length == None:
+            word_length = '1'
+        table = kwargs.get('table')
+        if table == None:
+            element_text = 'element_text'
+        clone = kwargs.get('clone')
+        if clone:
+            pre_query = str(clone.query)
+            pre_query = pre_query.replace('`','"')
+        else:
+            qs = clone.get_query_set()
+            pre_query = str(qs.query)
+            pre_query = pre_query.replace('`','"')
+        
+        sql = "\
+        with etext as ({pre_query}),\
+        words as ( \
+        select lower(regexp_split_to_table({table} , E'\\\\W+')) as word \
+        from etext \
+        ), \
+        word_lex as ( select word, count(*) as cnt,\
+        to_tsvector('english', COALESCE(word,'')) as t \
+        from words \
+        group by 1 order by %s desc ) \
+        select * from word_lex WHERE \
+        t != '' and word !~ '[0-9]+' and length(word) > {wl} ".format(table=table,pre_query=pre_query,wl=word_length)
+        limit = kwargs.get('limit')
+        order_by = kwargs.get('order_by')
+        if limit != None:
+            sql += 'limit {limit}'.format(limit=limit)
+        if order_by != None:
+            sql = sql %(order_by)
+        else:
+            sql = sql %('cnt')
+
+        return custom_sql(sql)
+
     def _search(self, query, **kwargs):
         """
         Returns a queryset after having applied the full-text search query. If rank_field
@@ -204,6 +257,11 @@ class SearchManager(BaseManager):
             order = ['-%s' % rank_field]
         
         return qs.extra(select=select, where=[where], order_by=order)
+def custom_sql(sql):
+    cursor = connection.cursor()
+    cursor.execute(sql)
+    rows = cursor.fetchall()
+    return rows
 
 class SearchableModel(BaseModel):
     class Meta:
@@ -212,3 +270,7 @@ class SearchableModel(BaseModel):
     search_index = VectorField()
 
     objects = SearchManager()
+
+
+
+
