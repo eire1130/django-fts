@@ -222,7 +222,7 @@ class SearchManager(BaseManager):
         from words \
         group by 1 order by %s desc ) \
         select * from word_lex WHERE \
-        t != '' and word !~ '[0-9]+' and length(word) > {wl} ".format(table=table,pre_query=pre_query,wl=word_length)
+        t != '' and word !~ '[0-9]+' and length(word) > {wl} ".format(table=element_text,pre_query=pre_query,wl=word_length)
         limit = kwargs.get('limit')
         order_by = kwargs.get('order_by')
         if limit != None:
