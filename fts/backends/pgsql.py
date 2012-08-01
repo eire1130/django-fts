@@ -108,21 +108,23 @@ class SearchManager(BaseManager):
         """
         try:
             f = self.model._meta.get_field(field)
-            t_size = getattr(self.model, f.column)
-            if sys.getsizeof(t_size) < 1048575:
-                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
-            else:
-                a = t_size
-                while sys.getsizeof(t_size) >= 1048575:
-                    a = a[:-1]
-                setattr(self.model, a)
-                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(a), weight), [])
+            return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
+#            print self.model.__dict__
+#            t_size = getattr(self.model, f.column)
+#            if sys.getsizeof(t_size) < 1048575:
+#                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(f.column), weight), [])
+#            else:
+#                a = t_size
+#                while sys.getsizeof(t_size) >= 1048575:
+#                    a = a[:-1]
+#                setattr(self.model, a)
+#                return ("setweight(to_tsvector('%s', coalesce(%s,'')), '%s')" % (self.language, qn(a), weight), [])
                 
         except FieldDoesNotExist:
             return ("setweight(to_tsvector('%s', %%s), '%s')" % (self.language, weight), [field])
 
     
-    @transaction.commit_on_success
+    #@transaction.commit_on_success
     def _update_index_update(self, pk=None):
         # Build a list of SQL clauses that generate tsvectors for each specified field.
         clauses = []
@@ -182,7 +184,7 @@ class SearchManager(BaseManager):
         else:
             transaction.set_dirty()
     
-    @transaction.commit_on_success
+    #@transaction.commit_on_success
     def _update_index(self, pk=None):
         index_walking = False
         for field, weight in self._fields.items():
@@ -203,7 +205,7 @@ class SearchManager(BaseManager):
         if table == None:
             element_text = 'element_text'
         clone = kwargs.get('clone')
-        if clone:
+        if clone != None:
             pre_query = str(clone.query)
             pre_query = pre_query.replace('`','"')
         else:
